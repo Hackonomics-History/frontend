@@ -45,9 +45,9 @@ export default function MyPage() {
     const [showCurrencyList, setShowCurrencyList] = useState(false);
     const [currencySearchQuery, setCurrencySearchQuery] = useState("");
     const [filteredCurrencies, setFilteredCurrencies] = useState<string[]>([]);
-    // Exchange
-    const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
-    const { rate: myExchangeRate, refresh: refreshExchangeRate } = useMyPageExchangeRate();
+    // Exchange — selectedCountryRate: temporary UI selection, accountCountryRate: saved account profile
+    const [selectedCountryRate, setSelectedCountryRate] = useState<ExchangeRate | null>(null);
+    const { rate: accountCountryRate, refresh: refreshAccountCountryRate } = useMyPageExchangeRate();
     // Account Money
     const [annualIncome, setAnnualIncome] = useState("");
     const [monthlyInvestableAmount, setMonthlyInvestableAmount] = useState("");
@@ -140,7 +140,7 @@ export default function MyPage() {
 
         try {
             const rateRes = await api.get(`/api/exchange/usd-to/${defaultCurrency}/`);
-            setExchangeRate(rateRes.data);
+            setSelectedCountryRate(rateRes.data);
         } catch (err) {
             const e = raiseAppError(err, navigate);
             setError(e.message);
@@ -155,7 +155,7 @@ export default function MyPage() {
 
         try {
             const res = await api.get(`/api/exchange/usd-to/${currency}/`);
-            setExchangeRate(res.data);
+            setSelectedCountryRate(res.data);
         } catch (err) {
             const e = raiseAppError(err, navigate);
             setError(e.message);
@@ -196,7 +196,7 @@ export default function MyPage() {
             });
 
             setSaveSuccess(true);
-            await refreshExchangeRate();
+            await refreshAccountCountryRate();
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (err) {
             const e = raiseAppError(err, navigate);
@@ -209,7 +209,7 @@ export default function MyPage() {
     const handleUpdateExchangeRate = async () => {
         setUpdating(true);
         try {
-            await refreshExchangeRate();
+            await refreshAccountCountryRate();
         } catch (err) {
             raiseAppError(err, navigate);
         } finally {
@@ -222,7 +222,7 @@ export default function MyPage() {
         return new Date(d).toLocaleString();
     };
 
-    const displayRate = exchangeRate ?? myExchangeRate;
+    const effectiveRate = selectedCountryRate ?? accountCountryRate;
 
     // UI
     if (loading) {
@@ -400,11 +400,11 @@ export default function MyPage() {
                             </>
                         )}
 
-                        {displayRate && (
+                        {effectiveRate && (
                             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl">
                                 <p className="text-sm text-gray-600 mb-1">Current Exchange Rate</p>
                                 <AnimatedText
-                                    text={`1 ${displayRate.base} = ${displayRate.rate.toFixed(4)} ${displayRate.target}`}
+                                    text={`1 ${effectiveRate.base} = ${effectiveRate.rate.toFixed(4)} ${effectiveRate.target}`}
                                     className="text-2xl font-bold text-gray-800"
                                 />
                             </div>
@@ -467,7 +467,7 @@ export default function MyPage() {
 
                 {/* My Exchange Rate */}
                 {
-                    myExchangeRate && (
+                    accountCountryRate && (
                         <Card>
                             <div className="flex items-center justify-between mb-6">
                                 <div className="flex items-center space-x-3">
@@ -476,10 +476,10 @@ export default function MyPage() {
                                 </div>
 
                                 <div className="flex items-center space-x-4">
-                                    {myExchangeRate.lastUpdated && (
+                                    {accountCountryRate.lastUpdated && (
                                         <div className="flex items-center space-x-1 text-sm text-gray-500">
                                             <Clock size={14} />
-                                            <span>{formatDate(myExchangeRate.lastUpdated)}</span>
+                                            <span>{formatDate(accountCountryRate.lastUpdated)}</span>
                                         </div>
                                     )}
 
@@ -498,14 +498,14 @@ export default function MyPage() {
                             <div className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl">
                                 <p className="text-sm text-gray-600 mb-2">Current Rate</p>
                                 <AnimatedText
-                                    text={`1 ${myExchangeRate.base} = ${myExchangeRate.rate.toFixed(4)} ${myExchangeRate.target}`}
+                                    text={`1 ${accountCountryRate.base} = ${accountCountryRate.rate.toFixed(4)} ${accountCountryRate.target}`}
                                     className="text-3xl font-bold text-gray-800 mb-4"
                                 />
 
-                                {myExchangeRate.lastUpdated && (
+                                {accountCountryRate.lastUpdated && (
                                     <div className="flex items-center space-x-2 text-sm text-gray-600">
                                         <Clock size={16} />
-                                        <span>Last updated: {formatDate(myExchangeRate.lastUpdated)}</span>
+                                        <span>Last updated: {formatDate(accountCountryRate.lastUpdated)}</span>
                                     </div>
                                 )}
                             </div>
