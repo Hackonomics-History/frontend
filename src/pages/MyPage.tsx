@@ -3,6 +3,7 @@ import { useAuth } from "../auth/useAuth";
 import { api } from "../api/client";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import ManageAccountModal from "@/components/account/ManageAccountModal";
 
 const KRATOS_BROWSER_URL = import.meta.env.VITE_KRATOS_BROWSER_URL;
 import {
@@ -56,6 +57,7 @@ export default function MyPage() {
     const [updating, setUpdating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
+    const [accountModalOpen, setAccountModalOpen] = useState(false);
 
     useEffect(() => {
         async function init() {
@@ -189,10 +191,10 @@ export default function MyPage() {
 
         try {
             await api.put("/api/account/me/", {
-                country_code: selectedCountry.code,
+                countryCode: selectedCountry.code,
                 currency: selectedCurrency,
-                annual_income: annualIncome,
-                monthly_investable_amount: monthlyInvestableAmount,
+                annualIncome: Number(annualIncome),
+                monthlyInvestableAmount: Number(monthlyInvestableAmount),
             });
 
             setSaveSuccess(true);
@@ -252,6 +254,26 @@ export default function MyPage() {
                     <h1 className="text-4xl font-bold">My Account</h1>
                     <p className="text-blue-200">Welcome, {user?.email ?? "User"}</p>
                 </div>
+
+                {/* Manage My Account */}
+                <Card>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-800 mb-1">Manage My Account</h2>
+                            <div className="border-t border-gray-200 mb-3" />
+                            <p className="text-sm text-gray-500">
+                                Manage your login information, active devices, and sessions.
+                            </p>
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="md"
+                            onClick={() => setAccountModalOpen(true)}
+                        >
+                            Account Settings
+                        </Button>
+                    </div>
+                </Card>
 
                 {/* Success Alert */}
                 {saveSuccess && (
@@ -512,7 +534,12 @@ export default function MyPage() {
                         </Card>
                     )
                 }
-            </div >
-        </div >
+            </div>
+
+            <ManageAccountModal
+                isOpen={accountModalOpen}
+                onClose={() => setAccountModalOpen(false)}
+            />
+        </div>
     );
 }
