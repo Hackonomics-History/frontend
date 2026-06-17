@@ -12,7 +12,7 @@ export async function streamChat(
 ) {
 
     const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/news/chat/stream/`,
+        `${import.meta.env.VITE_API_BASE_URL}/api/news/chat/stream/`,
         {
             method: "POST",
             credentials: "include",

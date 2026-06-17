@@ -60,7 +60,7 @@ export default function NewsPage() {
 
     const fetchNews = useCallback(async () => {
         const res = await api.get<BusinessNewsResponse>(
-            "/news/business-news/"
+            "/api/news/business-news/"
         );
         const data = res.data;
 
@@ -126,7 +126,7 @@ export default function NewsPage() {
             const prev = lastUpdated;
 
             const res = await api.post<RefreshResponse>(
-                "/news/business-news/refresh/"
+                "/api/news/business-news/refresh/"
             );
 
             setRefreshQueuedFor(res.data.country_code);

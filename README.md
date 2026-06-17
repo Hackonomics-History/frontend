@@ -1,3 +1,12 @@
 # Hackonomics 2026 — MyEconoCoach
 
-- Frontend
+### 1. Install
+
+```
+npm install
+```
+
+```
+npm run dev
+```
+

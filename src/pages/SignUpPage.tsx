@@ -1,14 +1,31 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../api/client";
+import axios, { AxiosError } from "axios";
 import { Lock, Mail, Eye, EyeOff, AlertCircle, Check } from "lucide-react";
 import { raiseAppError } from "@/common/errors/raiseAppError";
-import { AxiosError } from "axios";
 
 import AuthLayout from "../components/layouts/AuthLayout";
 import Card from "../components/ui/Card";
 import Input from "../components/ui/Input";
 import Button from "../components/ui/Button";
+
+const KRATOS_BROWSER_URL = import.meta.env.VITE_KRATOS_BROWSER_URL;
+
+interface KratosUiNode {
+    attributes?: {
+        name?: string;
+        value?: string;
+    };
+    messages?: Array<{ type: string; text: string }>;
+}
+
+interface KratosRegistrationFlow {
+    ui: {
+        action: string;
+        nodes: KratosUiNode[];
+        messages?: Array<{ type: string; text: string }>;
+    };
+}
 
 export default function SignUpPage() {
     const [formData, setFormData] = useState({
@@ -24,7 +41,6 @@ export default function SignUpPage() {
 
     const navigate = useNavigate();
 
-    // Password strength checker
     const getPasswordStrength = (password: string) => {
         if (password.length === 0) return { strength: 0, text: "" };
         if (password.length < 6) return { strength: 1, text: "Weak", color: "text-red-500" };
@@ -34,26 +50,16 @@ export default function SignUpPage() {
 
     const validatePassword = (password: string) => {
         const errors: string[] = [];
-
-        if (password.length < 8) {
-            errors.push("At least 8 characters");
-        }
-        if (!/[A-Z]/.test(password)) {
-            errors.push("At least one uppercase letter");
-        }
-        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-            errors.push("At least one special character");
-        }
+        if (password.length < 8) errors.push("At least 8 characters");
+        if (!/[A-Z]/.test(password)) errors.push("At least one uppercase letter");
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) errors.push("At least one special character");
         return errors;
     };
 
     const passwordStrength = getPasswordStrength(formData.password);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFormData({
-            ...formData,
-            [e.target.name]: e.target.value
-        });
+        setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -62,14 +68,9 @@ export default function SignUpPage() {
         setError(null);
 
         const passwordErrors = validatePassword(formData.password);
-
         if (passwordErrors.length > 0) {
-            const e = raiseAppError(
-                "CLIENT_VALIDATION_ERROR",
-                navigate,
-                passwordErrors[0]
-            );
-            setError(e.message);
+            const err = raiseAppError("CLIENT_VALIDATION_ERROR", navigate, passwordErrors[0]);
+            setError(err.message);
             setLoading(false);
             return;
         }
@@ -97,29 +98,55 @@ export default function SignUpPage() {
         }
 
         try {
-            await api.post("/auth/signup/", {
-                email: formData.email,
-                password: formData.password,
-                confirm_password: formData.confirmPassword,
-            });
+            // Step 1: Initialize Kratos self-service registration flow
+            const flowRes = await axios.get<KratosRegistrationFlow>(
+                `${KRATOS_BROWSER_URL}/self-service/registration/browser`,
+                {
+                    headers: { Accept: "application/json" },
+                    withCredentials: true,
+                }
+            );
+            const csrfToken =
+                flowRes.data.ui.nodes.find((n) => n.attributes?.name === "csrf_token")
+                    ?.attributes?.value ?? "";
 
-            alert("Sign up successful! Please log in.");
+            // Step 2: Submit registration credentials to Kratos
+            // Creates a Kratos identity with email trait AND password credential.
+            await axios.post(
+                flowRes.data.ui.action,
+                {
+                    method: "password",
+                    csrf_token: csrfToken,
+                    traits: { email: formData.email },
+                    password: formData.password,
+                },
+                {
+                    headers: { "Content-Type": "application/json", Accept: "application/json" },
+                    withCredentials: true,
+                }
+            );
+
+            // Registration succeeded — redirect to login so the user can authenticate.
             navigate("/login");
         } catch (err: unknown) {
             if (err instanceof AxiosError) {
-                const appError = raiseAppError(
-                    err.response?.data?.code ?? "UNKNOWN_ERROR",
-                    navigate,
-                    err.response?.data?.message
-                );
-                setError(appError.message);
+                if (err.response?.status === 400) {
+                    const flowData = err.response.data as KratosRegistrationFlow;
+                    const topMessage = flowData?.ui?.messages?.[0]?.text;
+                    const nodeMessage = flowData?.ui?.nodes
+                        ?.find((n) => (n.messages?.length ?? 0) > 0)
+                        ?.messages?.[0]?.text;
+                    setError(topMessage ?? nodeMessage ?? "Registration failed. Please try again.");
+                } else {
+                    const appError = raiseAppError(
+                        err.response?.data?.code ?? "UNKNOWN_ERROR",
+                        navigate,
+                        err.response?.data?.message
+                    );
+                    setError(appError.message);
+                }
             } else {
-                const appError = raiseAppError(
-                    "UNKNOWN_ERROR",
-                    navigate,
-                    "Unexpected login error"
-                );
-                setError(appError.message);
+                setError("Unexpected error. Please try again.");
             }
         } finally {
             setLoading(false);

@@ -16,7 +16,6 @@ export function handleAppError(
             break;
 
         case "LOGOUT":
-            localStorage.removeItem("access_token");
             navigate("/login");
             break;
 

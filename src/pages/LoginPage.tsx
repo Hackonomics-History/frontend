@@ -1,18 +1,37 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios, { AxiosError } from "axios";
 import { api } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Lock, Mail, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { raiseAppError } from "@/common/errors/raiseAppError";
-import { AxiosError } from "axios";
 
 import AuthLayout from "../components/layouts/AuthLayout";
 import Card from "../components/ui/Card";
 import Input from "../components/ui/Input";
 import Button from "../components/ui/Button";
 
+const KRATOS_BROWSER_URL = import.meta.env.VITE_KRATOS_BROWSER_URL;
 
-const API_SERVER_URL = import.meta.env.VITE_API_SERVER_URL;
+interface KratosUiNode {
+    attributes: {
+        name?: string;
+        value?: string;
+    };
+}
+
+interface KratosLoginFlow {
+    ui: {
+        action: string;
+        nodes: KratosUiNode[];
+    };
+}
+
+interface KratosSession {
+    identity: {
+        id: string;
+    };
+}
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");
@@ -24,6 +43,38 @@ export default function LoginPage() {
 
     const { login } = useAuth();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const checkSession = async () => {
+            try {
+                const sessionRes = await axios.get<KratosSession>(
+                    `${KRATOS_BROWSER_URL}/sessions/whoami`,
+                    {
+                        withCredentials: true,
+                    }
+                );
+
+                // 이미 Kratos 세션이 있으면
+                // BFF 세션도 보장하고 Account 화면으로 이동
+                await api.post("/bff/login", {
+                    user_id: sessionRes.data.identity.id,
+                    device_id: getDeviceId(),
+                    remember_me: false,
+                });
+
+                login();
+
+                navigate("/accounts", {
+                    replace: true,
+                });
+            } catch {
+                // 로그인 안 된 상태
+                // 그냥 로그인 화면 유지
+            }
+        };
+
+        checkSession();
+    }, [navigate, login]);
 
     const getDeviceId = () => {
         let id = localStorage.getItem("device_id");
@@ -40,42 +91,113 @@ export default function LoginPage() {
         setError(null);
 
         try {
-            const res = await api.post("/auth/login/", {
-                email,
-                password,
+            // Step 1: Initialize Kratos login flow (browser mode + SPA JSON response)
+            const flowRes = await axios.get<KratosLoginFlow>(
+                `${KRATOS_BROWSER_URL}/self-service/login/browser`,
+                {
+                    headers: { Accept: "application/json" },
+                    withCredentials: true,
+                }
+            );
+            const csrfToken =
+                flowRes.data.ui.nodes.find((n) => n.attributes?.name === "csrf_token")
+                    ?.attributes?.value ?? "";
+
+            // Step 2: Submit password credentials to Kratos
+            // On success Kratos sets ory_kratos_session cookie and returns 200.
+            await axios.post(
+                flowRes.data.ui.action,
+                { method: "password", identifier: email, password, csrf_token: csrfToken },
+                {
+                    headers: { "Content-Type": "application/json", Accept: "application/json" },
+                    withCredentials: true,
+                }
+            );
+
+            // Step 3: Get Kratos identity ID from the session cookie
+            const sessionRes = await axios.get<KratosSession>(
+                `${KRATOS_BROWSER_URL}/sessions/whoami`,
+                { withCredentials: true }
+            );
+
+            // Step 4: Exchange Kratos session for an opaque BFF __session cookie
+            await api.post("/bff/login", {
+                user_id: sessionRes.data.identity.id,
                 device_id: getDeviceId(),
                 remember_me: rememberMe,
             });
 
-            const { access_token } = res.data;
-            login(access_token);
-            // verify me
-            await api.get("/auth/me/");
-            navigate("/me");
+            login();
+
+            navigate("/accounts", {
+                replace: true,
+            });
         } catch (err: unknown) {
             if (err instanceof AxiosError) {
-                const appError = raiseAppError(
-                    err.response?.data?.code ?? "UNKNOWN_ERROR",
-                    navigate,
-                    err.response?.data?.message
-                );
-                setError(appError.message);
+                if (err.response?.status === 400) {
+                    const msg =
+                        err.response.data?.ui?.messages?.[0]?.text ??
+                        "Invalid email or password.";
+                    setError(msg);
+                } else {
+                    const appError = raiseAppError(
+                        err.response?.data?.code ?? "UNKNOWN_ERROR",
+                        navigate,
+                        err.response?.data?.message
+                    );
+                    setError(appError.message);
+                }
             } else {
-                const appError = raiseAppError(
-                    "UNKNOWN_ERROR",
-                    navigate,
-                    "Unexpected login error"
-                );
-                setError(appError.message);
+                setError("Unexpected error. Please try again.");
             }
         } finally {
             setLoading(false);
         }
     };
 
-    const handleGoogleLogin = () => {
-        window.location.href = `${API_SERVER_URL}/api/auth/google/login/`;
-    }
+    const handleGoogleLogin = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const flowRes = await axios.get<KratosLoginFlow>(
+                `${KRATOS_BROWSER_URL}/self-service/login/browser`,
+                {
+                    headers: { Accept: "application/json" },
+                    params: { return_to: `${window.location.origin}/oauth/callback` },
+                }
+            );
+
+            const flow = flowRes.data;
+            const csrfToken =
+                flow.ui.nodes.find((n) => n.attributes?.name === "csrf_token")
+                    ?.attributes?.value ?? "";
+
+            const form = document.createElement("form");
+            form.method = "POST";
+            form.action = flow.ui.action;
+            form.style.display = "none";
+
+            (
+                [
+                    ["csrf_token", csrfToken],
+                    ["method", "oidc"],
+                    ["provider", "google"],
+                ] as [string, string][]
+            ).forEach(([name, value]) => {
+                const input = document.createElement("input");
+                input.type = "hidden";
+                input.name = name;
+                input.value = value;
+                form.appendChild(input);
+            });
+
+            document.body.appendChild(form);
+            form.submit();
+        } catch {
+            setLoading(false);
+            setError("Could not start Google login. Please try again.");
+        }
+    };
 
     return (
         <AuthLayout>
@@ -190,4 +312,4 @@ export default function LoginPage() {
             </Card>
         </AuthLayout>
     );
-};
+}

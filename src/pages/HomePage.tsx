@@ -63,7 +63,7 @@ export default function HomePage() {
 
     const loadAccountCurrency = useCallback(async () => {
         try {
-            const res = await api.get("/account/me/");
+            const res = await api.get("/api/account/me/");
             const userCurrency = res.data.currency;
             setCurrency(userCurrency);
         } catch {
@@ -75,7 +75,7 @@ export default function HomePage() {
         setLoading(true);
         try {
             const res = await api.get<ExchangeHistoryResponse>(
-                "/exchange/history/",
+                "/api/exchange/history/",
                 {
                     params: {
                         currency: cur,
@@ -95,7 +95,7 @@ export default function HomePage() {
         setSimLoading(true);
         try {
             const res = await api.post<SimulationResult>(
-                "/simulation/compare/dca-vs-deposit/",
+                "/api/simulation/compare/dca-vs-deposit/",
                 {
                     period: simPeriod,
                     deposit_rate: Number(depositRate),

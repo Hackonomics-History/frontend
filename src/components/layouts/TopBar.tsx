@@ -26,7 +26,14 @@ export default function TopBar() {
 
     const handleLogout = async () => {
         try {
-            await api.post("/auth/logout/", {}, { withCredentials: true });
+            const csrfToken = document.cookie
+                .split("; ")
+                .find((row) => row.startsWith("__csrf="))
+                ?.split("=")[1] ?? "";
+            await api.post("/bff/logout", {}, {
+                withCredentials: true,
+                headers: { "X-CSRF-Token": csrfToken },
+            });
         } finally {
             logout();
             navigate("/login");
