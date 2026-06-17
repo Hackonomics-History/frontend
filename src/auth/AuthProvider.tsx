@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { AuthContext } from "./AuthContext";
 import { api } from "@/api/client";
@@ -10,7 +10,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const bootstrap = async () => {
             try {
-                await api.post("/auth/refresh/", {}, { withCredentials: true });
+                await api.get("/bff/whoami", { withCredentials: true });
                 setAccessToken("authenticated");
             } catch {
                 setAccessToken(null);
@@ -22,17 +22,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         bootstrap();
     }, []);
 
-    const login = () => {
+    const login = useCallback(() => {
         setAccessToken("authenticated");
-    };
+    }, []);
 
-    const logout = () => {
+    const logout = useCallback(() => {
         setAccessToken(null);
-    };
-
-    const setToken = (token: string | null) => {
-        setAccessToken(token);
-    }
+    }, []);
 
     return (
         <AuthContext.Provider
@@ -42,7 +38,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 loading,
                 login,
                 logout,
-                setAccessToken: setToken,
             }}
         >
             {children}

@@ -44,7 +44,6 @@ export default function AppRouter() {
             <Route path="/home" element={<HomePage />} />
             <Route path="/me" element={<MyPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
-            <Route path="/calendar/advisor" element={<CalendarPage />} />
             <Route path="/news/" element={<NewsPage />} />
 
           </Route>

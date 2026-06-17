@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { api } from "../api/client";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import ManageAccountModal from "@/components/account/ManageAccountModal";
+
+const KRATOS_BROWSER_URL = import.meta.env.VITE_KRATOS_BROWSER_URL;
 import {
     Globe,
     DollarSign,
@@ -21,21 +25,19 @@ import Input from "@/components/ui/Input";
 import AnimatedText from "@/components/ui/AnimatedText";
 
 // API Types
-import type { UserInfo, Country, ExchangeRate } from "@/api/types";
+import type { Country, ExchangeRate } from "@/api/types";
 // Domain Types
-import type { MyExchangeRate } from "@/domains/account/types";
 import { mapAccountFromApi } from "@/domains/account/mappers";
+import { useMyPageExchangeRate } from "@/domains/account/hooks/useMyPageExchangeRate";
 
 export default function MyPage() {
-    console.log("MyPage render start");
     const { logout } = useAuth();
     const navigate = useNavigate();
-    // Auth
-    const [user, setUser] = useState<UserInfo | null>(null);
+    // Auth — only email is needed from the Kratos identity traits
+    const [user, setUser] = useState<{ email: string } | null>(null);
     const [loading, setLoading] = useState(true);
     // Countries
     const [countries, setCountries] = useState<Country[]>([]);
-    const [filteredCountries, setFilteredCountries] = useState<Country[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
     const [showCountryList, setShowCountryList] = useState(false);
@@ -44,9 +46,9 @@ export default function MyPage() {
     const [showCurrencyList, setShowCurrencyList] = useState(false);
     const [currencySearchQuery, setCurrencySearchQuery] = useState("");
     const [filteredCurrencies, setFilteredCurrencies] = useState<string[]>([]);
-    // Exchange
-    const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
-    const [myExchangeRate, setMyExchangeRate] = useState<MyExchangeRate | null>(null);
+    // Exchange — selectedCountryRate: temporary UI selection, accountCountryRate: saved account profile
+    const [selectedCountryRate, setSelectedCountryRate] = useState<ExchangeRate | null>(null);
+    const { rate: accountCountryRate, refresh: refreshAccountCountryRate } = useMyPageExchangeRate();
     // Account Money
     const [annualIncome, setAnnualIncome] = useState("");
     const [monthlyInvestableAmount, setMonthlyInvestableAmount] = useState("");
@@ -55,13 +57,16 @@ export default function MyPage() {
     const [updating, setUpdating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
+    const [accountModalOpen, setAccountModalOpen] = useState(false);
 
     useEffect(() => {
-        console.log("MyPage init start");
         async function init() {
             try {
-                const meRes = await api.get("/auth/me/");
-                setUser(meRes.data);
+                const sessionRes = await axios.get(
+                    `${KRATOS_BROWSER_URL}/sessions/whoami`,
+                    { withCredentials: true }
+                );
+                setUser({ email: sessionRes.data.identity.traits?.email ?? "" });
             } catch (err) {
                 raiseAppError(err, navigate);
                 logout();
@@ -69,12 +74,10 @@ export default function MyPage() {
             }
             // 2) meta + account
             try {
-                const countriesRes = await api.get("/meta/countries/");
+                const countriesRes = await api.get("/api/meta/countries/");
                 setCountries(countriesRes.data);
-                setFilteredCountries(countriesRes.data);
 
                 await loadAccount(countriesRes.data);
-                await loadMyExchangeRate();
             } catch (err) {
                 const e = raiseAppError(err, navigate);
                 setError(e.message);
@@ -86,25 +89,10 @@ export default function MyPage() {
         init();
     }, [logout, navigate]);
 
-    useEffect(() => {
-        console.log("USER:", user);
-    }, [user]);
-
-    // countries filter
-    useEffect(() => {
-        if (!searchQuery) {
-            setFilteredCountries(countries);
-            return;
-        }
-
+    const filteredCountries = useMemo(() => {
+        if (!searchQuery) return countries;
         const q = searchQuery.toLowerCase();
-        setFilteredCountries(
-            countries.filter(
-                (c) =>
-                    c.name.toLowerCase().includes(q) ||
-                    c.code.toLowerCase().includes(q)
-            )
-        );
+        return countries.filter((c) => c.name.toLowerCase().startsWith(q));
     }, [searchQuery, countries]);
 
     // currency filter
@@ -122,7 +110,7 @@ export default function MyPage() {
 
     const loadAccount = async (countriesList: Country[]) => {
         try {
-            const res = await api.get("/account/me/");
+            const res = await api.get("/api/account/me/");
             const domainAccount = mapAccountFromApi(res.data);
 
             setAnnualIncome(String(domainAccount.annualIncome));
@@ -133,38 +121,7 @@ export default function MyPage() {
                 setSelectedCountry(country);
                 setFilteredCurrencies(country.currencies);
                 setSelectedCurrency(domainAccount.currency);
-                // currencies list from selectedCountry
-                setFilteredCurrencies(country.currencies);
-                setSelectedCurrency(domainAccount.currency);
-                // preview exchange rate
-                try {
-                    const rateRes = await api.get(`/exchange/usd-to/${domainAccount.currency}/`);
-                    setExchangeRate(rateRes.data);
-                } catch {
-                    // ignore
-                }
             }
-        } catch {
-            // not exist account user for New user
-        }
-    };
-
-    const loadMyExchangeRate = async () => {
-        try {
-            const res = await api.get("/account/me/exchange-rate/");
-            const apiRate = res.data;
-
-            if (!apiRate?.base || !apiRate?.target || !apiRate?.rate) {
-                console.warn("Invalid exchange rate response", apiRate);
-                return;
-            }
-
-            setMyExchangeRate({
-                base: apiRate.base,
-                target: apiRate.target,
-                rate: apiRate.rate,
-                lastUpdated: new Date().toISOString(),
-            });
         } catch {
             // not exist account user for New user
         }
@@ -184,8 +141,8 @@ export default function MyPage() {
         setShowCurrencyList(false);
 
         try {
-            const rateRes = await api.get(`/exchange/usd-to/${defaultCurrency}/`);
-            setExchangeRate(rateRes.data);
+            const rateRes = await api.get(`/api/exchange/usd-to/${defaultCurrency}/`);
+            setSelectedCountryRate(rateRes.data);
         } catch (err) {
             const e = raiseAppError(err, navigate);
             setError(e.message);
@@ -199,8 +156,8 @@ export default function MyPage() {
         setError(null);
 
         try {
-            const res = await api.get(`/exchange/usd-to/${currency}/`);
-            setExchangeRate(res.data);
+            const res = await api.get(`/api/exchange/usd-to/${currency}/`);
+            setSelectedCountryRate(res.data);
         } catch (err) {
             const e = raiseAppError(err, navigate);
             setError(e.message);
@@ -233,15 +190,15 @@ export default function MyPage() {
         setError(null);
 
         try {
-            await api.put("/account/me/", {
-                country_code: selectedCountry.code,
+            await api.put("/api/account/me/", {
+                countryCode: selectedCountry.code,
                 currency: selectedCurrency,
-                annual_income: annualIncome,
-                monthly_investable_amount: monthlyInvestableAmount,
+                annualIncome: Number(annualIncome),
+                monthlyInvestableAmount: Number(monthlyInvestableAmount),
             });
 
             setSaveSuccess(true);
-            await loadMyExchangeRate();
+            await refreshAccountCountryRate();
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (err) {
             const e = raiseAppError(err, navigate);
@@ -254,7 +211,7 @@ export default function MyPage() {
     const handleUpdateExchangeRate = async () => {
         setUpdating(true);
         try {
-            await loadMyExchangeRate();
+            await refreshAccountCountryRate();
         } catch (err) {
             raiseAppError(err, navigate);
         } finally {
@@ -266,6 +223,9 @@ export default function MyPage() {
         if (!d) return "Never";
         return new Date(d).toLocaleString();
     };
+
+    const effectiveRate = selectedCountryRate ?? accountCountryRate;
+
     // UI
     if (loading) {
         return (
@@ -294,6 +254,26 @@ export default function MyPage() {
                     <h1 className="text-4xl font-bold">My Account</h1>
                     <p className="text-blue-200">Welcome, {user?.email ?? "User"}</p>
                 </div>
+
+                {/* Manage My Account */}
+                <Card>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-800 mb-1">Manage My Account</h2>
+                            <div className="border-t border-gray-200 mb-3" />
+                            <p className="text-sm text-gray-500">
+                                Manage your login information, active devices, and sessions.
+                            </p>
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="md"
+                            onClick={() => setAccountModalOpen(true)}
+                        >
+                            Account Settings
+                        </Button>
+                    </div>
+                </Card>
 
                 {/* Success Alert */}
                 {saveSuccess && (
@@ -327,12 +307,16 @@ export default function MyPage() {
                     {selectedCountry && !showCountryList && (
                         <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
                             <div className="flex items-center space-x-4">
-                                {selectedCountry.flag && (
+                                {selectedCountry.flag ? (
                                     <img
                                         src={selectedCountry.flag}
                                         alt={selectedCountry.name}
                                         className="w-10 h-6 rounded shadow"
                                     />
+                                ) : (
+                                    <div className="flex items-center justify-center w-10 h-6 rounded shadow bg-gray-200 text-sm">
+                                        🌍
+                                    </div>
                                 )}
                                 <div>
                                     <p className="text-sm text-gray-600">Selected Country</p>
@@ -363,13 +347,17 @@ export default function MyPage() {
                             <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
                                 {filteredCountries.map((country) => (
                                     <button
-                                        key={country.code}
+                                        key={`${country.code || "NO_CODE"}-${country.name}`}
                                         onClick={() => handleCountrySelect(country)}
                                         className="w-full p-4 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl transition-all text-left"
                                     >
                                         <div className="flex items-center space-x-4">
-                                            {country.flag && (
+                                            {country.flag ? (
                                                 <img src={country.flag} alt={country.name} className="w-8 h-5 rounded" />
+                                            ) : (
+                                                <div className="flex items-center justify-center w-8 h-5 rounded bg-gray-200">
+                                                    🌍
+                                                </div>
                                             )}
                                             <div>
                                                 <p className="font-semibold text-gray-800">{country.name}</p>
@@ -434,11 +422,11 @@ export default function MyPage() {
                             </>
                         )}
 
-                        {exchangeRate && (
+                        {effectiveRate && (
                             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl">
                                 <p className="text-sm text-gray-600 mb-1">Current Exchange Rate</p>
                                 <AnimatedText
-                                    text={`1 ${exchangeRate.base} = ${exchangeRate.rate.toFixed(4)} ${exchangeRate.target}`}
+                                    text={`1 ${effectiveRate.base} = ${effectiveRate.rate.toFixed(4)} ${effectiveRate.target}`}
                                     className="text-2xl font-bold text-gray-800"
                                 />
                             </div>
@@ -501,7 +489,7 @@ export default function MyPage() {
 
                 {/* My Exchange Rate */}
                 {
-                    myExchangeRate && (
+                    accountCountryRate && (
                         <Card>
                             <div className="flex items-center justify-between mb-6">
                                 <div className="flex items-center space-x-3">
@@ -510,10 +498,10 @@ export default function MyPage() {
                                 </div>
 
                                 <div className="flex items-center space-x-4">
-                                    {myExchangeRate.lastUpdated && (
+                                    {accountCountryRate.lastUpdated && (
                                         <div className="flex items-center space-x-1 text-sm text-gray-500">
                                             <Clock size={14} />
-                                            <span>{formatDate(myExchangeRate.lastUpdated)}</span>
+                                            <span>{formatDate(accountCountryRate.lastUpdated)}</span>
                                         </div>
                                     )}
 
@@ -532,21 +520,26 @@ export default function MyPage() {
                             <div className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl">
                                 <p className="text-sm text-gray-600 mb-2">Current Rate</p>
                                 <AnimatedText
-                                    text={`1 ${myExchangeRate.base} = ${myExchangeRate.rate.toFixed(4)} ${myExchangeRate.target}`}
+                                    text={`1 ${accountCountryRate.base} = ${accountCountryRate.rate.toFixed(4)} ${accountCountryRate.target}`}
                                     className="text-3xl font-bold text-gray-800 mb-4"
                                 />
 
-                                {myExchangeRate.lastUpdated && (
+                                {accountCountryRate.lastUpdated && (
                                     <div className="flex items-center space-x-2 text-sm text-gray-600">
                                         <Clock size={16} />
-                                        <span>Last updated: {formatDate(myExchangeRate.lastUpdated)}</span>
+                                        <span>Last updated: {formatDate(accountCountryRate.lastUpdated)}</span>
                                     </div>
                                 )}
                             </div>
                         </Card>
                     )
                 }
-            </div >
-        </div >
+            </div>
+
+            <ManageAccountModal
+                isOpen={accountModalOpen}
+                onClose={() => setAccountModalOpen(false)}
+            />
+        </div>
     );
 }

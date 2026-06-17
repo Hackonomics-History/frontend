@@ -53,14 +53,14 @@ export default function CalendarPage() {
 
     const loadEvents = useCallback(async () => {
         try {
-            const res = await api.get("/calendar/events/");
+            const res = await api.get("/api/calendar/events/");
             setEvents(res.data);
         } catch (err) { raiseAppError(err, navigate, "Failed to load calendar events"); }
     }, [navigate]);
 
     const loadCategories = useCallback(async () => {
         try {
-            const res = await api.get("/calendar/categories/");
+            const res = await api.get("/api/calendar/categories/");
             setCategories(res.data);
         } catch (err) { raiseAppError(err, navigate, "Failed to load categories"); }
     }, [navigate]);
@@ -79,7 +79,7 @@ export default function CalendarPage() {
         setAdvice(null);
         setHighlightedEventIds(new Set());
         try {
-            const res = await api.post("/calendar/advisor/", {
+            const res = await api.post("/api/calendar/advice/", {
                 document_text: documentText
             });
             const raw = res.data.advice;
@@ -134,7 +134,7 @@ export default function CalendarPage() {
 
     const submitCreateEvent = async () => {
         try {
-            await api.post("/calendar/events/create/", { ...newEvent, category_ids: selectedCategoryIds, start_at: toUtcIso(newEvent.start_at), end_at: toUtcIso(newEvent.end_at) });
+            await api.post("/api/calendar/events/", { ...newEvent, category_ids: selectedCategoryIds, start_at: toUtcIso(newEvent.start_at), end_at: toUtcIso(newEvent.end_at) });
             await loadEvents();
             setIsSideEditorOpen(false);
         } catch (err) { raiseAppError(err, navigate, "Failed to create event"); }
@@ -143,7 +143,7 @@ export default function CalendarPage() {
     const submitUpdateEvent = async () => {
         if (!editingEvent) return;
         try {
-            await api.put(`/calendar/events/${editingEvent.id}/`, { ...newEvent, category_ids: selectedCategoryIds, start_at: toUtcIso(newEvent.start_at), end_at: toUtcIso(newEvent.end_at) });
+            await api.put(`/api/calendar/events/${editingEvent.id}/`, { ...newEvent, category_ids: selectedCategoryIds, start_at: toUtcIso(newEvent.start_at), end_at: toUtcIso(newEvent.end_at) });
             await loadEvents();
             setIsSideEditorOpen(false);
         } catch (err) { raiseAppError(err, navigate, "Failed to update event"); }
@@ -152,7 +152,7 @@ export default function CalendarPage() {
     const deleteEvent = async () => {
         if (!editingEvent || !confirm("Delete event?")) return;
         try {
-            await api.delete(`/calendar/events/${editingEvent.id}/`);
+            await api.delete(`/api/calendar/events/${editingEvent.id}/`);
             await loadEvents();
             setIsSideEditorOpen(false);
         } catch (err) { raiseAppError(err, navigate, "Failed to delete event"); }
@@ -417,7 +417,7 @@ export default function CalendarPage() {
                     }
                     onCreate={async () => {
                         await api.post(
-                            "/calendar/categories/create/",
+                            "/api/calendar/categories/",
                             newCategory
                         );
                         await loadCategories();
@@ -425,7 +425,7 @@ export default function CalendarPage() {
                     }}
                     onDelete={async (id) => {
                         await api.delete(
-                            `/calendar/categories/${id}/`
+                            `/api/calendar/categories/${id}/`
                         );
                         await loadCategories();
                     }}

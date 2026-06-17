@@ -17,9 +17,9 @@ api.interceptors.response.use(
         const originalRequest = error.config;
 
         const isAuthEndpoint =
-            originalRequest.url?.includes("/auth/login") ||
-            originalRequest.url?.includes("/auth/signup") ||
-            originalRequest.url?.includes("/auth/refresh");
+            originalRequest.url?.includes("/bff/login") ||
+            originalRequest.url?.includes("/bff/whoami") ||
+            originalRequest.url?.includes("/auth/signup");
 
         if (error.response?.status === 401 &&
             !originalRequest._retry &&
@@ -28,9 +28,8 @@ api.interceptors.response.use(
             originalRequest._retry = true;
 
             try {
-                await axios.post(
-                    `${API_BASE_URL}/auth/refresh/`,
-                    {},
+                await axios.get(
+                    `${API_BASE_URL}/bff/whoami`,
                     { withCredentials: true }
                 );
 
